@@ -1,6 +1,8 @@
 package com.example.auth_service.controller;
 
+import com.example.auth_service.DTO.ResponseDto;
 import com.example.auth_service.DTO.UserDto;
+import com.example.auth_service.Services.RefreshTokenService;
 import com.example.auth_service.Services.UserDetailServiceImplementation;
 import com.example.auth_service.Services.UserService;
 import com.example.auth_service.utils.JwtUtil;
@@ -32,6 +34,8 @@ public class AuthController {
     AuthenticationManager authenticationManager;
     @Autowired
     JwtUtil jwtUtil;
+    @Autowired
+    RefreshTokenService refreshTokenService;
     private static final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
@@ -43,21 +47,24 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public String login(@RequestBody UserDto userDto) {
-        log.debug("User is going to be authenticated");
+    public ResponseEntity<ResponseDto> login(@RequestBody UserDto userDto) {
         Authentication authenticate = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(userDto.getUserName(), userDto.getPassword()));
         if (authenticate.isAuthenticated()) {
             log.info("User is a authenticated user");
             UserDetails user = userDetailsService.loadUserByUsername(userDto.getUserName());
-            log.debug("Token is going to be generated");
             String token = jwtUtil.generateToken(user.getUsername());
-            log.info("Token generated");
-            return token;
+            log.info("Access Token generated");
+            //checking if refresh token already exists
+            refreshTokenService.deleteRefreshTokenIfExist(user.getUsername());
+            String refreshToken = jwtUtil.createRefreshToken(user.getUsername());
+            refreshTokenService.createRefreshToken(refreshToken);
+            log.info("Refresh Token generated");
+            return ResponseEntity.ok(new ResponseDto(token, refreshToken));
 
         }
-        log.error("User not authenticated.Cannot generate token");
         return null;
 
     }
+
 
 }

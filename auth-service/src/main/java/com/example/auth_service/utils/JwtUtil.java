@@ -9,10 +9,12 @@ import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class JwtUtil {
     private String SECRET_KEY = "TaK+HaV^uvCHEFsEVfypW#7g9^k*Z8$V";
+    private final long REFRESHTOKEN_EXPIRATION = 7 * 24 * 60 * 60 * 100;
 
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
@@ -25,6 +27,11 @@ public class JwtUtil {
 
     public Date extractExpiration(String token) {
         return extractAllClaims(token).getExpiration();
+    }
+
+    public String extractToken(String token)
+    {
+        return extractAllClaims(token).getId();
     }
 
     private Claims extractAllClaims(String token) {
@@ -44,6 +51,18 @@ public class JwtUtil {
         return Jwts.builder().claims(claims).subject(subject).header().empty().add("typ", "JWT").and().issuedAt(new Date(System.currentTimeMillis())).expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60)) // 5 minutes expiration time
                 .signWith(getSigningKey()).compact();
     }
+
+    public String createRefreshToken(String userName) {
+        return Jwts.builder().id(UUID.randomUUID().toString()).subject(userName).claim("type", "refreshtoken").header().empty().add("typ", "JWT").and().issuedAt(new Date(System.currentTimeMillis())).expiration(new Date(System.currentTimeMillis()+REFRESHTOKEN_EXPIRATION))
+                .signWith(getSigningKey()).compact();
+
+    }
+
+    public String extractType(String token)
+    {
+        return extractAllClaims(token).get("type",String.class);
+    }
+
 
     public Boolean validateToken(String token) {
         return !isTokenExpired(token);
