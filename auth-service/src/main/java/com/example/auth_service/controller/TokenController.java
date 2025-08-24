@@ -4,20 +4,28 @@ import com.example.auth_service.DTO.ResponseDto;
 import com.example.auth_service.Exception.InvalidTokenException;
 import com.example.auth_service.Exception.TokenExpired;
 import com.example.auth_service.Services.RefreshTokenService;
+import com.example.auth_service.Services.UserDetailServiceImplementation;
 import com.example.auth_service.utils.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @RestController
 @RequestMapping("/token")
 public class TokenController {
     private static final Logger log = LoggerFactory.getLogger(TokenController.class);
+    @Autowired
+    private UserDetailServiceImplementation  userDetailsService;
     @Autowired
     RefreshTokenService refreshTokenService;
     @Autowired
@@ -41,7 +49,9 @@ public class TokenController {
         boolean existsInDb = refreshTokenService.validateTokenInDb(token, userName);
 
         if (isValidType && existsInDb) {
-            return jwtUtil.generateToken(userName);
+            UserDetails user = userDetailsService.loadUserByUsername(userName);
+            List<String> roles=user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+            return jwtUtil.generateToken(userName,roles);
         }
 
         throw new TokenExpired("Token expired or invalid");
@@ -60,7 +70,9 @@ log.info(userName);
         if(isValidType&&existsInDb)
         {
             refreshTokenService.deleteRefreshTokenIfExist(userName);
-            String acessToken=jwtUtil.generateToken(userName);
+            UserDetails user = userDetailsService.loadUserByUsername(userName);
+            List<String> roles=user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+            String acessToken=jwtUtil.generateToken(userName,roles);
             String refreshTokenNew=jwtUtil.createRefreshToken(userName);
             refreshTokenService.createRefreshToken(refreshTokenNew);
             var response=new ResponseDto();

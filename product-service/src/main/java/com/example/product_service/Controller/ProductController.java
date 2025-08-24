@@ -17,35 +17,34 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/product")
 public class ProductController {
     @Autowired
     private ProductService productService;
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA, value = "/add")
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA, value = "/product/admin/add")
     public ResponseEntity<?> addProdduct(@RequestPart("product") ProductDto productDto, @RequestPart("images") List<MultipartFile> files) {
         ProductDto savedProductDto = productService.addProduct(productDto, files);
         return ResponseEntity.status(HttpStatus.CREATED).body(savedProductDto);
     }
 
-    @DeleteMapping("/delete/{id}")
+    @DeleteMapping("/product/admin/delete/{id}")
     public ResponseEntity<?> deleteProduct(@PathVariable int id) {
         productService.deleteProduct(id);
         return ResponseEntity.ok("Product deleted successfully");
     }
 
-    @PutMapping(consumes = MediaType.MULTIPART_FORM_DATA, value = "/update/{id}")
+    @PutMapping(consumes = MediaType.MULTIPART_FORM_DATA, value = "/product/admin/update/{id}")
     public ResponseEntity<?> deleteProduct(@RequestPart("product") ProductDto productDto, @RequestPart("images") List<MultipartFile> files, @PathVariable int id) {
         ProductDto updatedProductDto = productService.updateProduct(id, productDto, files);
         return ResponseEntity.ok(updatedProductDto);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/product/{id}")
     public ResponseEntity<?> getProductById(@PathVariable int id) {
         return ResponseEntity.ok(productService.getProduct(id));
     }
 
-    @GetMapping("/all")
+    @GetMapping("/product/all")
     public ResponseEntity<?> getAll(@RequestParam(defaultValue = "0") int page,
                                     @RequestParam(defaultValue = "10") int size,
                                     @RequestParam(defaultValue = "productName") String sortBy,

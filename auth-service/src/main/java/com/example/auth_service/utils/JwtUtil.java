@@ -6,10 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
 import javax.crypto.SecretKey;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Component
 public class JwtUtil {
@@ -37,13 +34,19 @@ public class JwtUtil {
     private Claims extractAllClaims(String token) {
         return Jwts.parser().verifyWith(getSigningKey()).build().parseSignedClaims(token).getPayload();
     }
+    public List<String> extractRoles(String token)
+    {
+        List<String> role= extractAllClaims(token).get("role",List.class);
+        return role;
+    }
 
     private Boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
     }
 
-    public String generateToken(String username) {
+    public String generateToken(String username, List<String> roles) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put("role",roles);
         return createToken(claims, username);
     }
 
