@@ -21,9 +21,10 @@ public AuthenticationFilter()
     public GatewayFilter apply(Config config) {
         return ((exchange,chain)->
         {
-            System.out.println("Request is here");
+            System.out.println("Request is inside the GatewayeFilter");
             if(routeValidator.isSecured.test(exchange.getRequest()))
             {
+                System.out.println("Going to check request");
                 if(!(exchange.getRequest().getHeaders().containsKey(HttpHeaders.AUTHORIZATION)))
                 {
                     System.out.println("Request missing header here");

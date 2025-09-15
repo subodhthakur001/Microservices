@@ -1,5 +1,6 @@
 package com.example.auth_service.Services;
 
+import com.example.auth_service.DTO.UserCreatedEvent;
 import com.example.auth_service.DTO.UserDto;
 import com.example.auth_service.entity.Role;
 import com.example.auth_service.entity.User;
@@ -26,7 +27,7 @@ public class UserService {
     @Autowired
     private RoleRepository roleRepository;
 
-    public boolean saveUser(UserDto userDto) {
+    public User saveUser(UserDto userDto) {
         User u = new User();
         u.setUserName(userDto.getUserName());
         u.setPassword(passwordEncoder.encode(userDto.getPassword()));
@@ -36,14 +37,16 @@ public class UserService {
         }
         try {
             log.info("User is going to be saved");
-            userRepository.save(u);
+           User createdUser= userRepository.save(u);
             log.info("User  saved successfully");
-            return true;
+
+
+            return createdUser;
 
         } catch (DataAccessException dae) {
             log.error("Error in saving user " + dae.getMessage());
         }
-        return false;
+        return null;
 
     }
 

@@ -2,6 +2,7 @@ package com.example.product_service;
 
 import com.example.product_service.DTO.ImageDto;
 import com.example.product_service.DTO.ProductDto;
+import com.example.product_service.DTO.ProductMetaDto;
 import com.example.product_service.Entity.Image;
 import com.example.product_service.Entity.Product;
 import com.example.product_service.Enums.Category;
@@ -195,7 +196,7 @@ public class ProductServiceTest {
         when(productRepsitory.findAllWithImages(pageable)).thenReturn(productPage);
 
         // Call service
-        RestPage<ProductDto> result = productService.findAll(page, size, sortBy, sortDir);
+        RestPage<ProductMetaDto> result = productService.findAll(page, size, sortBy, sortDir);
 
         // Assertions
         assertNotNull(result);
@@ -204,12 +205,11 @@ public class ProductServiceTest {
         assertEquals(pageable.getPageNumber(), result.getPageable().getPageNumber());
         assertEquals(pageable.getPageSize(), result.getPageable().getPageSize());
 
-        ProductDto dto1 = result.getContent().get(0);
-        assertEquals("P1", dto1.getProductName());
-        assertEquals(100, dto1.getProductPrice());
-        assertEquals(2, dto1.getImages().size());
-        assertTrue(dto1.getImages().stream()
-                .anyMatch(i -> "u2".equals(i.getUrl())));
+        ProductMetaDto dto1 = result.getContent().get(0);
+        assertEquals("P1", dto1.getName());
+        assertEquals(100, dto1.getPrice());
+        assertEquals(2, dto1.getCoverImageUrl().equals("u1"));
+
 
         verify(productRepsitory, times(1)).findAllWithImages(pageable);
     }

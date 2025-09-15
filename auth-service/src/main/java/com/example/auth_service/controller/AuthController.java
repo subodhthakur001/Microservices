@@ -1,10 +1,13 @@
 package com.example.auth_service.controller;
 
 import com.example.auth_service.DTO.ResponseDto;
+import com.example.auth_service.DTO.UserCreatedEvent;
 import com.example.auth_service.DTO.UserDto;
+import com.example.auth_service.Services.AuthEventProducer;
 import com.example.auth_service.Services.RefreshTokenService;
 import com.example.auth_service.Services.UserDetailServiceImplementation;
 import com.example.auth_service.Services.UserService;
+import com.example.auth_service.entity.User;
 import com.example.auth_service.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
@@ -27,7 +30,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@Slf4j
 @RequestMapping("/auth")
 public class AuthController {
     @Autowired
@@ -40,13 +42,22 @@ public class AuthController {
     JwtUtil jwtUtil;
     @Autowired
     RefreshTokenService refreshTokenService;
+    @Autowired
+    private AuthEventProducer authEventProducer;
     private static final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     @PostMapping("/signup")
     public ResponseEntity<String> signUp(@RequestBody UserDto userDto) {
-        boolean success = userService.saveUser(userDto);
-        return success ? ResponseEntity.ok("User created successfully") : ResponseEntity.badRequest().body("Error in creating user");
+        User createdUser = userService.saveUser(userDto);
+if(createdUser!=null)
+{
+    UserCreatedEvent evt=new UserCreatedEvent(createdUser.getId(),userDto.getUserName());
+    log.info("Going to call the auth-event-producer");
+    authEventProducer.sendUserCreatedEvent(evt);
+
+}
+        return createdUser!=null ? ResponseEntity.ok("User created successfully") : ResponseEntity.badRequest().body("Error in creating user");
 
     }
 

@@ -1,6 +1,7 @@
 package com.example.product_service.Controller;
 
 import com.example.product_service.DTO.ProductDto;
+import com.example.product_service.DTO.ProductMetaDto;
 import com.example.product_service.Entity.Product;
 import com.example.product_service.Service.ProductService;
 import com.example.product_service.wrapper.RestPage;
@@ -47,9 +48,9 @@ public class ProductController {
     @GetMapping("/product/all")
     public ResponseEntity<?> getAll(@RequestParam(defaultValue = "0") int page,
                                     @RequestParam(defaultValue = "10") int size,
-                                    @RequestParam(defaultValue = "productName") String sortBy,
+                                    @RequestParam(defaultValue = "FASHION_APPAREL") String sortBy,
                                     @RequestParam(defaultValue = "asc") String sortDir) {
-        RestPage<ProductDto> products = productService.findAll(page, size, sortBy, sortDir);
+        RestPage<ProductMetaDto> products = productService.findAll(page, size, sortBy, sortDir);
         Map<String, Object> response = new HashMap<>();
         response.put("products", products.getContent());
         response.put("currentPage", products.getNumber());

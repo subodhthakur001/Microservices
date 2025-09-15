@@ -2,12 +2,14 @@ package com.example.product_service.Service;
 
 import com.example.product_service.DTO.ImageDto;
 import com.example.product_service.DTO.ProductDto;
+import com.example.product_service.DTO.ProductMetaDto;
 import com.example.product_service.Entity.Image;
 import com.example.product_service.Entity.Product;
 import com.example.product_service.Enums.Category;
 import com.example.product_service.Exception.ProductWithIdNotFound;
 import com.example.product_service.Repository.ProductRepository;
 import com.example.product_service.wrapper.RestPage;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationAdapter;
@@ -24,11 +32,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
-import java.util.ArrayList;
 
 @Service
 public class ProductService {
@@ -39,8 +44,10 @@ public class ProductService {
     @Autowired
     private ImageService imageService;
 
+    @Autowired
+    private RedisTemplate<String,ProductMetaDto> redisTemplate;
+
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "products", allEntries = true)
     public ProductDto addProduct(ProductDto productDto, List<MultipartFile> files) {
         Product p = convertToEntity(productDto);
         List<Image> images = saveImage(files);
@@ -51,6 +58,7 @@ public class ProductService {
             transactionStatus(p, files);
         }
         Product savedProduct = productRepository.save(p);
+        redisTemplate.opsForHash().put(getHashKey(productDto.getCategoryName().toString()),String.valueOf(savedProduct.getProductId()),convertToMetaDto(savedProduct));
         log.info("Product saved successfully");
         return convertToDto(savedProduct);
     }
@@ -77,13 +85,13 @@ public class ProductService {
 
     }
 
-    @CacheEvict(value = "products", allEntries = true)
     public void deleteProduct(int productId) throws RuntimeException {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductWithIdNotFound("Product not found"));
 
         imageService.deleteFiles(product.getImages());
         productRepository.delete(product);
+        redisTemplate.opsForHash().delete(getHashKey(String.valueOf(product.getCategoryName())), String.valueOf(productId));
     }
 
     public ProductDto getProduct(int productId) {
@@ -113,6 +121,7 @@ public class ProductService {
 
         productRepository.save(p);
         log.info("Product updated successfully");
+        redisTemplate.opsForHash().put(getHashKey(String.valueOf(p.getCategoryName())),String.valueOf(p.getProductId()),convertToMetaDto(p));
         return convertToDto(p);
 
     }
@@ -154,19 +163,89 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "products", key = "#page + '-' + #size + '-' + #sortBy + '-' + #sortDir")
-    public RestPage<ProductDto> findAll(int page, int size, String sortBy, String sortDir) {
-        Sort sort = sortDir.equalsIgnoreCase("asc") ? Sort.by(sortBy).ascending() :
-                Sort.by(sortBy).descending();
-        Pageable pageable = PageRequest.of(page, size, sort);
-        Page<Product> result = productRepository.findAllWithImages(pageable);
-        List<ProductDto> productDto = result.stream().map(p ->
-                new ProductDto(p.getProductName(), p.getProductDescription()
-                        , p.getPrice(), p.getCategoryName().toString(), p.getImages().stream().
-                        map(img -> new ImageDto(img.getUrl())).toList()
-                )).toList();
-        return new RestPage<>(productDto, result.getPageable(), result.getTotalElements());
+    public RestPage<ProductMetaDto> findAll(int page, int size, String sortBy, String sortDir) {
+        log.info("Fetching products for category: {}", sortBy);
+
+        List<ProductMetaDto> productDto;
+        Map<Object, Object> products = getProductsFromCacheWithRetry(getHashKey(sortBy));
+
+        if (products != null && !products.isEmpty()) {
+            log.info("✅ Data found in cache");
+ObjectMapper objectMapper=new ObjectMapper();
+            productDto = products.values().stream()
+                    .map(v -> objectMapper.convertValue(v, ProductMetaDto.class))
+                    .toList();
+        } else {
+            log.info("❌ Data not in cache, fetching from DB");
+
+            Map<Object, Object> productObject = productRepository
+                    .findByCategoryName(Category.valueOf(sortBy))
+                    .stream()
+                    .collect(Collectors.toMap(
+                            p -> String.valueOf(p.getProductId()),
+                            this::convertToMetaDto
+                    ));
+
+            productDto = productObject.values().stream() .map(p -> (ProductMetaDto) p) .toList();
+            // try to cache (no retry needed here, failure is ok)
+            try {
+                redisTemplate.opsForHash().putAll(getHashKey(sortBy), productObject);
+            } catch (Exception e) {
+                log.warn("Could not cache data in Redis. Error: {}", e.getMessage());
+            }
+        }
+
+        Pageable pageable = PageRequest.of(page, size);
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), productDto.size());
+
+        return new RestPage<>(productDto.subList(start, end), pageable, productDto.size());
     }
 
+    // ✅ Retry for Redis lookup
+    @Retryable(
+            value = { RedisConnectionFailureException.class, RedisSystemException.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 2000, multiplier = 2) // exponential backoff
+    )
+    public Map<Object, Object> getProductsFromCacheWithRetry(String categoryKey) {
+        log.debug("Trying to fetch from Redis, key={}", categoryKey);
+        return redisTemplate.opsForHash().entries(categoryKey);
+    }
+
+    // ✅ Fallback after retries exhausted
+    @Recover
+    public Map<Object, Object> recoverFromRedisFailure(Exception ex, String categoryKey) {
+        log.warn("⚠️ Redis unavailable after retries. Falling back to DB for key={} | Error: {}",
+                categoryKey, ex.getMessage());
+        return null; // force DB fetch in findAll
+    }
+
+    private ProductMetaDto convertToMetaDto(Product product) {
+        String coverImageUrl = null;
+        if (product.getImages() != null && !product.getImages().isEmpty()) {
+            coverImageUrl = product.getImages().get(0).getUrl(); // assuming getUrl()
+        }
+        return new ProductMetaDto(
+                product.getProductId(),
+                product.getProductName(),
+                product.getProductDescription(),
+                product.getPrice(),
+                product.getCategoryName().name(),
+                coverImageUrl
+        );
+    }
+    @Retryable(
+            value = { RedisConnectionFailureException.class, RedisSystemException.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 2000) // wait 2s between retries
+    )
+    public Map<Object, Object> getProductsFromCache(String categoryKey) {
+        return redisTemplate.opsForHash().entries(categoryKey);
+    }
+
+    private String getHashKey(String category) {
+        return "products:hash:" + category.toLowerCase();
+    }
 
 }
